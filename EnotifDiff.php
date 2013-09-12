@@ -35,7 +35,6 @@ $wgExtensionCredits['other'][] = array (
 function wfEnotifDiff()
 {
     global $wgEmailContentType, $wgVersion, $IP;
-    wfLoadExtensionMessages('EnotifDiff');
     if ($wgVersion < '1.16')
     {
         if (!function_exists('wfAddPreferences'))
