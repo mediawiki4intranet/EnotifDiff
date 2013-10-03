@@ -7,7 +7,7 @@
  * (at your option) any later version.
  *
  * ATTENTION: This extension requires a patched includes/UserMailer.php
- *            (see MediaWiki4Intranet patch 000-html-emails)
+ *            (see MediaWiki4Intranet html-emails patch)
  * ATTENTION2: This extension requires PreferencesExtension for MediaWiki < 1.16
  *
  * @author Vitaliy Filippov <vitalif@mail.ru>
@@ -15,7 +15,9 @@
  */
 
 if (!defined('MEDIAWIKI'))
+{
     die();
+}
 
 define('MEDIAWIKI_HAVE_HTML_EMAIL', 1);
 $wgExtensionFunctions[] = 'wfEnotifDiff';
@@ -29,7 +31,7 @@ $wgExtensionCredits['other'][] = array (
     'description' => 'An ability to send page diffs in enotify mail messages',
     'author'      => 'Vitaliy Filippov',
     'url'         => 'http://wiki.4intra.net/EnotifDiff',
-    'version'     => '1.0.2 (2011-02-04), for MediaWiki 1.16',
+    'version'     => '1.0.3 (2013-10-03), for MediaWiki 1.14-1.21',
 );
 
 function wfEnotifDiff()
@@ -60,7 +62,7 @@ function wfEnotifDiff()
     $wgEmailContentType = 'text/html';
 }
 
-function _enotifdiff_GetPreferences( $user, &$defaultPreferences )
+function _enotifdiff_GetPreferences($user, &$defaultPreferences)
 {
     $defaultPreferences['enotifsenddiffs'] =
         array(
@@ -79,22 +81,40 @@ function _enotifdiff_GetPreferences( $user, &$defaultPreferences )
 
 function _enotifdiff_compose_common_mailtext(&$mailer, &$keys)
 {
-    global $wgOut;
-    $oldWgOut = $wgOut;
-    if (class_exists('RequestContext'))
-        $wgOut = new OutputPage(RequestContext::getMain());
+    global $wgOut, $wgVersion;
+    if (version_compare($wgVersion, '1.19', '>='))
+    {
+        $context = new DerivativeContext(RequestContext::getMain());
+        $out = new OutputPage($context);
+        $context->setOutput($out);
+        $de = new DifferenceEngine($context, $keys['$OLDID'], 'next');
+        $de->showDiffPage(true);
+    }
     else
-        $wgOut = new OutputPage();
-    $de = new DifferenceEngine(Title::newFromText($keys['$PAGETITLE']), $keys['$OLDID'], 'next');
-    $de->showDiffPage(true);
-    $keys['$DIFF'] = $wgOut->getHTML();
+    {
+        $oldWgOut = $wgOut;
+        if (version_compare($wgVersion, '1.18', '>='))
+        {
+            $wgOut = new OutputPage(RequestContext::getMain());
+        }
+        else
+        {
+            $wgOut = new OutputPage();
+        }
+        $out = $wgOut;
+        $de = new DifferenceEngine(Title::newFromText($keys['$PAGETITLE']), $keys['$OLDID'], 'next');
+        $de->showDiffPage(true);
+        $wgOut = $oldWgOut;
+    }
+    $keys['$DIFF'] = $out->getHTML();
     $keys['$DIFF'] = preg_replace('#^(.*?)<tr[^<>]*>.*?</tr\s*>#is', '\1', $keys['$DIFF'], 1);
     $keys['$DIFF'] = preg_replace('#class=[\"\']?diff-deletedline[\"\']?#is', 'style="background-color: #ffffaa"', $keys['$DIFF']);
     $keys['$DIFF'] = preg_replace('#class=[\"\']?diff-addedline[\"\']?#is', 'style="background-color: #ccffcc"', $keys['$DIFF']);
     $keys['$DIFF'] = preg_replace('#class=[\"\']?diffchange\s*diffchange-inline[\"\']?#is', 'style="color: red; font-weight: bold"', $keys['$DIFF']);
     if (trim($keys['$PAGESUMMARY']) == '-')
+    {
         $keys['$PAGESUMMARY'] = $keys['$PAGEMINOREDIT'] ? '' : wfMsg('enotif-empty-summary');
-    $wgOut = $oldWgOut;
+    }
     return true;
 }
 
@@ -107,11 +127,14 @@ function _enotifdiff_personalize_mailtext(&$mailer, &$user, &$body)
         $body = substr($body, 0, $s+7);
     }
     if (!$diff)
+    {
         return true;
-    if ($user->getOption('enotifsenddiffs'))
-        $body = str_replace('$REALDIFF', $diff, $body);
-    else
-        $body = str_replace('$REALDIFF', '', $body);
+    }
+    if (!$user->getOption('enotifsenddiffs'))
+    {
+        $diff = '';
+    }
+    $body = str_replace('$REALDIFF', $diff, $body);
     return true;
 }
 
