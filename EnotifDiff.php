@@ -140,9 +140,11 @@ function _enotifdiff_personalize_mailtext(&$mailer, &$user, &$body)
 
 function _enotifdiff_user_condition(&$mailer, &$condition)
 {
+    $dbr = wfGetDB(DB_SLAVE);
+    $user_properties_table = $dbr->tableName('user_properties');
     $condition = str_ireplace(
         'wl_notificationtimestamp IS NULL',
-        '(wl_notificationtimestamp IS NULL OR EXISTS (SELECT * FROM user_properties'.
+        "(wl_notificationtimestamp IS NULL OR EXISTS (SELECT * FROM $user_properties_table ".
         ' WHERE up_user=user_id AND up_property IN (\'enotifsendmultiple\', \'enotifsenddiffs\') AND up_value=1))',
         $condition);
     return true;
