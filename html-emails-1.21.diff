@@ -1,0 +1,115 @@
+commit 87932bce58ee58101b78f2a460041ab7f4044f3c
+Author: Vitaliy Filippov <vitalif@yourcmc.ru>
+Date:   Fri Nov 16 02:59:14 2012 +0400
+
+    Patch: html-emails
+    Type: feature
+    
+    Patch for EnotifDiff extension. Enables HTML email support and additional headers. CustIS Bug 25475.
+
+diff --git a/includes/DefaultSettings.php b/includes/DefaultSettings.php
+index c1dbc05..e137cc4 100644
+--- a/includes/DefaultSettings.php
++++ b/includes/DefaultSettings.php
+@@ -1570,6 +1570,11 @@ $wgAdditionalMailParams = null;
+ $wgAllowHTMLEmail = false;
+ 
+ /**
++ * Default content type for e-mails
++ */
++$wgEmailContentType = 'text/plain';
++
++/**
+  * True: from page editor if s/he opted-in. False: Enotif mails appear to come
+  * from $wgEmergencyContact
+  */
+diff --git a/includes/mail/EmailNotification.php b/includes/mail/EmailNotification.php
+index 01b6afa..fec9540 100644
+--- a/includes/mail/EmailNotification.php
++++ b/includes/mail/EmailNotification.php
+@@ -86,14 +86,16 @@ class EmailNotification {
+ 		}
+ 
+ 		$dbw = wfGetDB( DB_MASTER );
+-		$res = $dbw->select( array( 'watchlist' ),
+-			array( 'wl_user' ),
+-			array(
+-				'wl_user != ' . intval( $editor->getID() ),
+-				'wl_namespace' => $title->getNamespace(),
+-				'wl_title' => $title->getDBkey(),
+-				'wl_notificationtimestamp IS NULL',
+-			), __METHOD__
++		$userCondition = array(
++			'user_id=wl_user',
++			'wl_title' => $title->getDBkey(),
++			'wl_namespace' => $title->getNamespace(),
++			'wl_user != ' . intval( $editor->getID() ),
++			'wl_notificationtimestamp IS NULL',
++		);
++		wfRunHooks( 'EnotifUserCondition', array( &$this, &$userCondition ) );
++		$res = $dbw->select( array( 'watchlist', 'user' ),
++			array( 'wl_user' ), $userCondition, __METHOD__
+ 		);
+ 
+ 		$watchers = array();
+@@ -370,6 +372,8 @@ class EmailNotification {
+ 		$keys['$PAGETITLE_URL'] = $this->title->getCanonicalURL();
+ 		$keys['$PAGEMINOREDIT'] = $this->minorEdit ?
+ 			wfMessage( 'minoredit' )->inContentLanguage()->text() : '';
++		$keys['$PAGETITLE_URL_NOENC'] = urldecode( $this->title->getCanonicalUrl() );
++		$keys['$PAGESUMMARY'] = $this->summary == '' ? ' - ' : $this->summary;
+ 		$keys['$UNWATCHURL'] = $this->title->getCanonicalURL( 'action=unwatch' );
+ 
+ 		if ( $this->editor->isAnon() ) {
+@@ -390,6 +394,8 @@ class EmailNotification {
+ 			Skin::makeInternalOrExternalUrl( wfMessage( 'helppage' )->inContentLanguage()->text() )
+ 		);
+ 
++		wfRunHooks( 'EnotifComposeCommonMailtext', array( &$this, &$keys ) );
++
+ 		# Replace this after transforming the message, bug 35019
+ 		$postTransformKeys['$PAGESUMMARY'] = $this->summary == '' ? ' - ' : $this->summary;
+ 
+@@ -503,6 +509,8 @@ class EmailNotification {
+ 			$headers['List-Help'] = 'https://www.mediawiki.org/wiki/Special:MyLanguage/Help:Watchlist';
+ 		}
+ 
++		wfRunHooks( 'EnotifPersonalizeMailtext', array( &$this, &$watchingUser, &$body ) );
++
+ 		return UserMailer::send( $to, $this->from, $this->subject, $body, array(
+ 			'replyTo' => $this->replyto,
+ 			'headers' => $headers,
+diff --git a/includes/mail/UserMailer.php b/includes/mail/UserMailer.php
+index 447eb1a..49563ea 100644
+--- a/includes/mail/UserMailer.php
++++ b/includes/mail/UserMailer.php
+@@ -116,7 +116,7 @@ class UserMailer {
+ 	 */
+ 	public static function send( $to, $from, $subject, $body, $options = array() ) {
+ 		global $wgSMTP, $wgEnotifMaxRecips, $wgAdditionalMailParams, $wgAllowHTMLEmail;
+-		$contentType = 'text/plain; charset=UTF-8';
++		$contentType = NULL;
+ 		$headers = array();
+ 		if ( is_array( $options ) ) {
+ 			$replyto = isset( $options['replyTo'] ) ? $options['replyTo'] : null;
+@@ -130,6 +130,10 @@ class UserMailer {
+ 				$contentType = func_get_arg( 5 );
+ 			}
+ 		}
++		if ( is_null( $contentType ) ) {
++			global $wgEmailContentType;
++			$contentType = $wgEmailContentType.'; charset=UTF-8';
++		}
+ 
+ 		$mime = null;
+ 		if ( !is_array( $to ) ) {
+@@ -269,8 +273,7 @@ class UserMailer {
+ 				$body = str_replace( "\n", "\r\n", $body );
+ 			}
+ 			$headers['MIME-Version'] = '1.0';
+-			$headers['Content-type'] = ( is_null( $contentType ) ?
+-				'text/plain; charset=UTF-8' : $contentType );
++			$headers['Content-type'] = $contentType;
+ 			$headers['Content-transfer-encoding'] = '8bit';
+ 		}
+ 
